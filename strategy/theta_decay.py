@@ -255,80 +255,38 @@ class ThetaDecayStrategy:
 
         if current_total_premium >= self.stop_loss_level:
             logger.warning(f"Stop-loss breached! Current premium: {current_total_premium}, SL level: {self.stop_loss_level}")
-            self.active_strangle['sl_triggered'] = True
 
+            # Identify loss-making and profitable legs
             call_pnl = self.positions[call_symbol].get('pnl', 0)
             put_pnl = self.positions[put_symbol].get('pnl', 0)
 
-            loss_making_leg_symbol = call_symbol if call_pnl < put_pnl else put_symbol
-            exited_leg_type = "CE" if loss_making_leg_symbol == call_symbol else "PE"
+            if call_pnl < put_pnl:
+                loss_making_leg_symbol = call_symbol
+                profitable_leg_symbol = put_symbol
+            else:
+                loss_making_leg_symbol = put_symbol
+                profitable_leg_symbol = call_symbol
 
+            # Exit the loss-making leg
             logger.info(f"Exiting loss-making leg: {loss_making_leg_symbol}")
             self._place_order(loss_making_leg_symbol, self.strat_var_quantity, "BUY")
-
             self.positions[loss_making_leg_symbol]['status'] = 'exited'
 
+            # Flag the profitable leg for trailing
+            if profitable_leg_symbol in self.positions:
+                self.positions[profitable_leg_symbol]['trail_sl'] = True
+                logger.info(f"Flagging profitable leg {profitable_leg_symbol} for trailing stop-loss.")
+
+            # Check if we can re-enter with a new strangle
             if self.reentries_count < self.strat_var_max_reentries:
                 self.reentries_count += 1
-                logger.info(f"Attempting re-entry #{self.reentries_count}")
-                self._re_enter_strangle(exited_leg_type)
+                logger.info(f"Re-entry #{self.reentries_count} will be attempted. A new strangle will be opened.")
             else:
-                logger.info("Max re-entries reached. No more re-entries.")
-                profitable_leg_symbol = self.active_strangle['put_option']['tradingsymbol'] if exited_leg_type == "CE" else self.active_strangle['call_option']['tradingsymbol']
-                if profitable_leg_symbol in self.positions:
-                    self.positions[profitable_leg_symbol]['trail_sl'] = True
-                    logger.info(f"Flagging {profitable_leg_symbol} for trailing stop-loss.")
-                self.active_strangle = None
+                logger.info("Max re-entries reached. No more new strangles will be opened.")
 
-    def _re_enter_strangle(self, exited_leg_type):
-        """Re-enters one leg of the strangle to form a new strangle."""
-        logger.info(f"Re-entering strangle after exiting {exited_leg_type} leg.")
-
-        if exited_leg_type == "CE":
-            new_option_type = "CE"
-            target_premium = self.strat_var_call_premium
-            remaining_leg_option = self.active_strangle['put_option']
-        else:
-            new_option_type = "PE"
-            target_premium = self.strat_var_put_premium
-            remaining_leg_option = self.active_strangle['call_option']
-
-        new_option = self._find_option_by_premium(new_option_type, target_premium)
-        if not new_option:
-            logger.error(f"Could not find new {new_option_type} option for re-entry.")
+            # Mark the current strangle as broken. The main loop will attempt a new entry.
             self.active_strangle = None
-            return
 
-        sell_order_id = self._place_order(new_option['tradingsymbol'], self.strat_var_quantity, "SELL")
-        if not sell_order_id:
-            logger.error(f"Failed to place order for new {new_option_type} option.")
-            self.active_strangle = None
-            return
-
-        self.positions[new_option['tradingsymbol']] = {'entry_price': new_option['last_price'], 'type': new_option_type, 'leg': 'sell', 'status': 'active'}
-
-        if exited_leg_type == "CE":
-            new_call_option = new_option
-            new_put_option = remaining_leg_option
-        else:
-            new_call_option = remaining_leg_option
-            new_put_option = new_option
-
-        remaining_leg_price = self.positions[remaining_leg_option['tradingsymbol']].get('current_price', remaining_leg_option['last_price'])
-        total_premium = new_option['last_price'] + remaining_leg_price
-        sl_percentage_premium = total_premium * (1 + self.strat_var_stop_loss_percentage)
-        sl_double_premium = 2 * total_premium
-        self.stop_loss_level = min(sl_percentage_premium, sl_double_premium)
-
-        self.active_strangle.update({
-            "call_option": new_call_option,
-            "put_option": new_put_option,
-            "entry_premium": total_premium,
-            "stop_loss_level": self.stop_loss_level,
-            "sl_triggered": False
-        })
-
-        logger.info(f"Strangle re-entered successfully. New total premium: {total_premium}, New SL level: {self.stop_loss_level}")
 
     def _handle_trailing_sl(self):
         """Handles the trailing stop-loss for profitable legs."""

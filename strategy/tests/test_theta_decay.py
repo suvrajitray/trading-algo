@@ -114,5 +114,45 @@ class TestThetaDecayStrategy(unittest.TestCase):
         self.strategy._place_order.assert_not_called()
         self.assertEqual(self.strategy.positions['NIFTY24OCT20000CE']['status'], 'active')
 
+    def test_stop_loss_and_new_strangle_logic(self):
+        """Test the new stop-loss logic: exit lossy, trail profitable, and break strangle."""
+        # 1. Setup initial state with an active strangle
+        self.strategy.active_strangle = {
+            'call_option': {'tradingsymbol': 'NIFTY24OCT20000CE', 'last_price': 50},
+            'put_option': {'tradingsymbol': 'NIFTY24OCT19000PE', 'last_price': 50},
+            'stop_loss_level': 125.0,
+            'sl_triggered': False
+        }
+        self.strategy.positions = {
+            'NIFTY24OCT20000CE': {'leg': 'sell', 'status': 'active', 'entry_price': 50},
+            'NIFTY24OCT19000PE': {'leg': 'sell', 'status': 'active', 'entry_price': 50},
+        }
+        # Simulate SL breach
+        self.strategy.positions['NIFTY24OCT20000CE']['current_price'] = 100
+        self.strategy.positions['NIFTY24OCT19000PE']['current_price'] = 30
+        self.strategy.positions['NIFTY24OCT20000CE']['pnl'] = (50 - 100) * 50
+        self.strategy.positions['NIFTY24OCT19000PE']['pnl'] = (50 - 30) * 50
+
+        self.strategy.stop_loss_level = 125.0
+        self.strategy._place_order = Mock()
+
+        # 2. Call the handler
+        self.strategy._handle_stop_loss()
+
+        # 3. Assertions
+        # Assert that the loss-making leg (CE) was exited
+        self.strategy._place_order.assert_called_once_with('NIFTY24OCT20000CE', 50, 'BUY')
+        self.assertEqual(self.strategy.positions['NIFTY24OCT20000CE']['status'], 'exited')
+
+        # Assert that the profitable leg (PE) was flagged for trailing
+        self.assertTrue(self.strategy.positions['NIFTY24OCT19000PE'].get('trail_sl'))
+        self.assertEqual(self.strategy.positions['NIFTY24OCT19000PE']['status'], 'active')
+
+        # Assert that re-entry count is incremented
+        self.assertEqual(self.strategy.reentries_count, 1)
+
+        # Assert that the active strangle is now broken
+        self.assertIsNone(self.strategy.active_strangle)
+
 if __name__ == '__main__':
     unittest.main()
