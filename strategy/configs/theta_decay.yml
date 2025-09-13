@@ -1,0 +1,91 @@
+# Nifty Weekly Options - Theta Decay Strangle Strategy Configuration
+# =================================================================
+#
+# This configuration file defines the parameters for the Theta Decay Strangle Strategy.
+# The strategy sells a strangle (a call and a put option) and hedges it with far OTM options.
+# It includes rules for stop-loss, trailing stop-loss, profit booking, and capital protection.
+
+default:
+  # ========================================================================
+  # STRATEGY CORE PARAMETERS
+  # ========================================================================
+
+  # Entry time for the strategy (e.g., "09:20")
+  entry_time: "09:20"
+
+  # Target premium for the call option to sell
+  call_premium: 50
+
+  # Target premium for the put option to sell
+  put_premium: 50
+
+  # Target premium for the hedge options to buy
+  hedge_premium: 2.0
+
+  # ========================================================================
+  # STOP-LOSS PARAMETERS
+  # ========================================================================
+
+  # Percentage to add to the total premium for the stop-loss calculation
+  # SL = min(Total Premium * (1 + stop_loss_percentage), 2 * Total Premium)
+  stop_loss_percentage: 0.25  # 25%
+
+  # Maximum number of times to re-enter a strangle after a stop-loss is hit
+  max_reentries: 2
+
+  # ========================================================================
+  # TRAILING STOP-LOSS PARAMETERS
+  # ========================================================================
+
+  # Decay factor for the trailing stop-loss of the first profitable leg
+  # TSL = Current Premium + (Decay / trailing_sl_decay_factor_1)
+  trailing_sl_decay_factor_1: 2
+
+  # Decay factor for the trailing stop-loss of the second profitable leg
+  # TSL = Current Premium + (Decay / trailing_sl_decay_factor_2)
+  trailing_sl_decay_factor_2: 3
+
+  # ========================================================================
+  # PROFIT AND LOSS PARAMETERS
+  # ========================================================================
+
+  # Maximum loss for the day. If this is reached, all positions will be closed.
+  capital_protection_limit: 30000
+
+  # Percentage of premium decay at which to book profits on a single leg
+  profit_booking_percentage: 0.70  # 70%
+
+  # Overall profit target for the day. If this is reached, all positions will be closed.
+  overall_profit_target: 20000
+
+  # The profit level at which to start trailing the overall profit
+  trailing_profit_target: 10000
+
+  # The amount by which to increase the trailing stop-loss for every certain profit increase
+  trailing_profit_increment: 10
+
+  # ========================================================================
+  # INSTRUMENT AND ORDER PARAMETERS
+  # ========================================================================
+
+  # Underlying index symbol for price tracking
+  index_symbol: "NSE:NIFTY 50"
+
+  # Option series identifier (e.g., "NIFTY24OCT")
+  # This should be updated to the current weekly expiry
+  symbol_initials: "NIFTY24OCT"
+
+  # Exchange for trading options
+  exchange: "NFO"
+
+  # Product type for the orders (NRML for overnight, MIS for intraday)
+  product_type: "NRML"
+
+  # Transaction type for all orders
+  trans_type: "SELL"
+
+  # Order type for execution
+  order_type: "MARKET"
+
+  # Quantity for the options (should be a multiple of the lot size)
+  quantity: 50

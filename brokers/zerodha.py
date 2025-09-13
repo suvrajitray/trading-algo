@@ -93,26 +93,94 @@ class ZerodhaBroker(BrokerBase):
             symbol = exchange + ":" + symbol
         return self.kite.quote(symbol)
     
-    def place_gtt_order(self, symbol, quantity, price, transaction_type, order_type, exchange, product, tag="Unknown"):
+    def place_gtt_order(self, symbol, quantity, trigger_price, transaction_type, order_type, exchange, product, tag="Unknown"):
         if order_type not in ["LIMIT", "MARKET"]:
             raise ValueError(f"Invalid order type: {order_type}")
         
         if transaction_type not in ["BUY", "SELL"]:
             raise ValueError(f"Invalid transaction type: {transaction_type}")
-        
+
+        limit_price = trigger_price * 1.01 if transaction_type == "BUY" else trigger_price * 0.99
+
         order_obj = {
             "exchange": exchange,
             "tradingsymbol": symbol,
             "transaction_type": transaction_type,
             "quantity": quantity,
-            "order_type": order_type,
+            "order_type": "LIMIT",
             "product": product,
-            "price": price,
+            "price": round(limit_price, 1),
             "tag": tag
         }
-        last_price = self.get_quote(symbol, exchange)[exchange + ":" + symbol]['last_price']
-        order_id = self.kite.place_gtt(trigger_type=self.kite.GTT_TYPE_SINGLE, tradingsymbol=symbol, exchange=exchange, trigger_values=[price], last_price=last_price, orders=order_obj)
-        return order_id['trigger_id']
+        last_price = self.get_quote(f"{exchange}:{symbol}")[f"{exchange}:{symbol}"]['last_price']
+
+        condition = {
+            "exchange": exchange,
+            "tradingsymbol": symbol,
+            "trigger_values": [trigger_price],
+            "last_price": last_price
+        }
+
+        try:
+            order_id = self.kite.place_gtt(
+                type=self.kite.GTT_TYPE_SINGLE,
+                condition=condition,
+                orders=[order_obj]
+            )
+            logger.info(f"GTT order placed successfully: {order_id['trigger_id']}")
+            return order_id['trigger_id']
+        except Exception as e:
+            logger.error(f"Failed to place GTT order for {symbol}: {e}")
+            return None
+
+    def modify_gtt_order(self, trigger_id, symbol, quantity, trigger_price, transaction_type, order_type, exchange, product, tag="Unknown"):
+        if order_type not in ["LIMIT", "MARKET"]:
+            raise ValueError(f"Invalid order type: {order_type}")
+
+        if transaction_type not in ["BUY", "SELL"]:
+            raise ValueError(f"Invalid transaction_type: {transaction_type}")
+
+        limit_price = trigger_price * 1.01 if transaction_type == "BUY" else trigger_price * 0.99
+
+        order_obj = {
+            "exchange": exchange,
+            "tradingsymbol": symbol,
+            "transaction_type": transaction_type,
+            "quantity": quantity,
+            "order_type": "LIMIT",
+            "product": product,
+            "price": round(limit_price, 1),
+        }
+        last_price = self.get_quote(f"{exchange}:{symbol}")[f"{exchange}:{symbol}"]['last_price']
+
+        condition = {
+            "exchange": exchange,
+            "tradingsymbol": symbol,
+            "trigger_values": [trigger_price],
+            "last_price": last_price
+        }
+
+        try:
+            order_id = self.kite.modify_gtt(
+                trigger_id=trigger_id,
+                type=self.kite.GTT_TYPE_SINGLE,
+                condition=condition,
+                orders=[order_obj]
+            )
+            logger.info(f"GTT order {trigger_id} modified successfully. New trigger ID: {order_id['trigger_id']}")
+            return order_id['trigger_id']
+        except Exception as e:
+            logger.error(f"Failed to modify GTT order {trigger_id}: {e}")
+            return None
+
+    def cancel_gtt_order(self, trigger_id):
+        try:
+            result = self.kite.cancel_gtt(trigger_id=trigger_id)
+            logger.info(f"GTT order {trigger_id} cancelled successfully.")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to cancel GTT order {trigger_id}: {e}")
+            return None
     
     def place_order(self, symbol, quantity, price, transaction_type, order_type, variety, exchange, product, tag="Unknown"):
         if order_type == "LIMIT":
